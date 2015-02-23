@@ -1,16 +1,16 @@
 package streaming
 
 import (
-	"log"
-	"fmt"
-	"path"
-	"net/url"
-	"net/http"
 	"encoding/json"
+	"fmt"
 	"github.com/golang/groupcache/lru"
 	"github.com/kz26/m3u8"
-	"os"
 	"io"
+	"log"
+	"net/http"
+	"net/url"
+	"os"
+	"path"
 	"time"
 )
 
@@ -21,10 +21,10 @@ const (
 
 type Watcher struct {
 	ChannelName string
-	Status chan string
+	Status      chan string
 
 	playlistWatcher *PlaylistWatcher
-	downloader *Downloader
+	downloader      *Downloader
 }
 
 func New(channelName string) (*Watcher, error) {
@@ -47,17 +47,17 @@ func New(channelName string) (*Watcher, error) {
 
 type PlaylistWatcher struct {
 	ChannelName string
-	Token string
-	Signature string
-	Output chan string
-	Status chan string
+	Token       string
+	Signature   string
+	Output      chan string
+	Status      chan string
 }
 
 func NewPlaylistWatcher(channelName string) (*PlaylistWatcher, error) {
 	p := &PlaylistWatcher{
 		ChannelName: channelName,
-		Output: make(chan string, 1024),
-		Status: make(chan string),
+		Output:      make(chan string, 1024),
+		Status:      make(chan string),
 	}
 
 	err := p.getToken()
@@ -99,30 +99,33 @@ func (p *PlaylistWatcher) getToken() error {
 	return nil
 }
 
-func (p *PlaylistWatcher) run(){
-	go func(){
+func (p *PlaylistWatcher) run() {
+	go func() {
 		cache := lru.New(1024)
+		base_url, _ := url.Parse(fmt.Sprintf(USHER_API_MASK, p.ChannelName, p.Token, p.Signature, 123456))
+
+		req, _ := http.NewRequest("GET", base_url.String(), nil)
+		resp, _ := http.DefaultClient.Do(req)
+
+		/*if err != nil || (resp != nil && resp.StatusCode != 200) {
+			log.Printf("Got a response from USHER: %s", resp.Status)
+			time.Sleep(5 * time.Second)
+		}*/
+
+		playlist, _, _ := m3u8.DecodeFrom(resp.Body, true)
+		master_playlist := playlist.(*m3u8.MasterPlaylist)
+		resp.Body.Close()
+
+		variant_base, _ := url.Parse(master_playlist.Variants[0].URI)
 
 		for {
-			base_url, _ := url.Parse(fmt.Sprintf(USHER_API_MASK, p.ChannelName, p.Token, p.Signature, 123456))
-
-			req, _ := http.NewRequest("GET", base_url.String(), nil)
+			req, _ = http.NewRequest("GET", master_playlist.Variants[0].URI, nil)
 			resp, err := http.DefaultClient.Do(req)
 
 			if err != nil || (resp != nil && resp.StatusCode != 200) {
-				log.Printf("Got a response from USHER: %s", resp.Status)
+				log.Printf("Got a response from VARIANT: %s", resp.Status)
 				time.Sleep(5 * time.Second)
-				continue
 			}
-
-			playlist, _, _ := m3u8.DecodeFrom(resp.Body, true)
-			master_playlist := playlist.(*m3u8.MasterPlaylist)
-			resp.Body.Close()
-
-			variant_base, _ := url.Parse(master_playlist.Variants[0].URI)
-
-			req, _ = http.NewRequest("GET", master_playlist.Variants[0].URI, nil)
-			resp, err = http.DefaultClient.Do(req)
 
 			dir := path.Dir(variant_base.Path)
 
@@ -149,13 +152,13 @@ func (p *PlaylistWatcher) run(){
 }
 
 type Downloader struct {
-	Work chan string
+	Work   chan string
 	Output io.Writer
 }
 
-func NewDownloader (work chan string, output io.Writer) *Downloader {
+func NewDownloader(work chan string, output io.Writer) *Downloader {
 	d := &Downloader{
-		Work: work,
+		Work:   work,
 		Output: output,
 	}
 
@@ -163,8 +166,8 @@ func NewDownloader (work chan string, output io.Writer) *Downloader {
 	return d
 }
 
-func (d *Downloader) run () {
-	go func(){
+func (d *Downloader) run() {
+	go func() {
 		var req *http.Request
 		var resp *http.Response
 		var err error

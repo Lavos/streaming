@@ -1,11 +1,11 @@
 package main
 
 import (
-	"log"
 	"github.com/Lavos/streaming"
+	"log"
 )
 
-func main () {
+func main() {
 	w, err := streaming.New("controllerhead")
 
 	log.Printf("Worker: %#v %s", w, err)
