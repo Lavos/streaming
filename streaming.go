@@ -3,7 +3,6 @@ package streaming
 import (
 	"log"
 	"fmt"
-	"syscall"
 	"path"
 	"net/url"
 	"net/http"
@@ -22,8 +21,8 @@ const (
 
 type Watcher struct {
 	ChannelName string
+	Status chan string
 
-	fifo *os.File
 	playlistWatcher *PlaylistWatcher
 	downloader *Downloader
 }
@@ -33,7 +32,6 @@ func New(channelName string) (*Watcher, error) {
 		ChannelName: channelName,
 	}
 
-	// start playlist watcher
 	p, err := NewPlaylistWatcher(w.ChannelName)
 
 	if err != nil {
@@ -41,13 +39,7 @@ func New(channelName string) (*Watcher, error) {
 	}
 
 	w.playlistWatcher = p
-
-	err = syscall.Mkfifo("/data/homes/lavos/temp/watcher", 0777)
-
-	log.Print("Mkfifo error: %s", err)
-
-	// file, err := os.Open("/data/homes/lavos/temp/watcher")
-
+	w.Status = p.Status
 	w.downloader = NewDownloader(w.playlistWatcher.Output, os.Stdout)
 
 	return w, nil
@@ -58,12 +50,14 @@ type PlaylistWatcher struct {
 	Token string
 	Signature string
 	Output chan string
+	Status chan string
 }
 
 func NewPlaylistWatcher(channelName string) (*PlaylistWatcher, error) {
 	p := &PlaylistWatcher{
 		ChannelName: channelName,
 		Output: make(chan string, 1024),
+		Status: make(chan string),
 	}
 
 	err := p.getToken()
@@ -80,8 +74,6 @@ func NewPlaylistWatcher(channelName string) (*PlaylistWatcher, error) {
 func (p *PlaylistWatcher) getToken() error {
 	req, _ := http.NewRequest("GET", fmt.Sprintf(TOKEN_API_MASK, p.ChannelName), nil)
 
-	log.Printf("Request: %s", req.URL.String())
-
 	resp, err := http.DefaultClient.Do(req)
 
 	if err != nil {
@@ -89,7 +81,7 @@ func (p *PlaylistWatcher) getToken() error {
 	}
 
 	if resp.StatusCode != 200 {
-		fmt.Errorf("Non-200 code returned: %s", resp.StatusCode)
+		fmt.Errorf("Non-200 code returned for TOKEN: %s", resp.StatusCode)
 	}
 
 	var t TokenResponse
@@ -117,7 +109,11 @@ func (p *PlaylistWatcher) run(){
 			req, _ := http.NewRequest("GET", base_url.String(), nil)
 			resp, err := http.DefaultClient.Do(req)
 
-			log.Printf("error: %s", err)
+			if err != nil || (resp != nil && resp.StatusCode != 200) {
+				log.Printf("Got a response from USHER: %s", resp.Status)
+				time.Sleep(5 * time.Second)
+				continue
+			}
 
 			playlist, _, _ := m3u8.DecodeFrom(resp.Body, true)
 			master_playlist := playlist.(*m3u8.MasterPlaylist)
@@ -128,14 +124,11 @@ func (p *PlaylistWatcher) run(){
 			req, _ = http.NewRequest("GET", master_playlist.Variants[0].URI, nil)
 			resp, err = http.DefaultClient.Do(req)
 
-			log.Printf("error: %s", err)
-
 			dir := path.Dir(variant_base.Path)
 
 			playlist, _, _ = m3u8.DecodeFrom(resp.Body, true)
 			media_playlist := playlist.(*m3u8.MediaPlaylist)
 
-			log.Printf("TargetDuration: %f", media_playlist.TargetDuration)
 			resp.Body.Close()
 
 			for _, segment := range media_playlist.Segments {
@@ -145,6 +138,7 @@ func (p *PlaylistWatcher) run(){
 					if !hit {
 						p.Output <- fmt.Sprintf("%s://%s%s/%s", variant_base.Scheme, variant_base.Host, dir, segment.URI)
 						cache.Add(segment.URI, nil)
+						p.Status <- segment.URI
 					}
 				}
 			}
@@ -171,14 +165,13 @@ func NewDownloader (work chan string, output io.Writer) *Downloader {
 
 func (d *Downloader) run () {
 	go func(){
-		log.Printf("Running Downloader.")
+		var req *http.Request
+		var resp *http.Response
+		var err error
 
 		for uri := range d.Work {
-			log.Printf("WORK URI: %s", uri)
-			req, _ := http.NewRequest("GET", uri, nil)
-			resp, err := http.DefaultClient.Do(req)
-
-			log.Printf("Response: %#v, Error: %s", resp, err)
+			req, _ = http.NewRequest("GET", uri, nil)
+			resp, err = http.DefaultClient.Do(req)
 
 			if err == nil {
 				io.Copy(d.Output, resp.Body)

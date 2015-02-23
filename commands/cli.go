@@ -3,12 +3,14 @@ package main
 import (
 	"log"
 	"github.com/Lavos/streaming"
-	"time"
 )
 
 func main () {
-	w, err := streaming.New("darkwing_duck_sda")
+	w, err := streaming.New("controllerhead")
 
 	log.Printf("Worker: %#v %s", w, err)
-	time.Sleep(10 * time.Minute)
+
+	for id := range w.Status {
+		log.Printf("Segment %s downloading.", id)
+	}
 }
