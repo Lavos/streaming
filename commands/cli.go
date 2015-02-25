@@ -8,8 +8,8 @@ import (
 )
 
 var (
-	channelname = flag.String("channel", "omnigamer", "The name of the channel.")
-	variant = flag.String("variant", "medium", "The variant of the stream.")
+	channelname = flag.String("channel", "gamesdonequick", "The name of the channel.")
+	variant = flag.String("variant", "chunked", "The variant of the stream.")
 )
 
 func awaitQuitKey(done chan bool) {
@@ -27,23 +27,25 @@ func awaitQuitKey(done chan bool) {
 func main() {
 	flag.Parse()
 
-	done := make(chan bool)
-	status := make(chan string)
+	q := make(chan bool)
 
-	w, err := streaming.New(*channelname, *variant, status)
+	status, done := streaming.Watch(*channelname, *variant, os.Stdout)
+	log.Print("Press q<enter> to exit.")
 
-	log.Printf("Worker: %#v %s", w, err)
-
-	go awaitQuitKey(done)
+	go awaitQuitKey(q)
 
 loop:
 	for {
 		select {
-		case s := <-status:
+		case s, ok := <-status:
+			if !ok {
+				break loop
+			}
+
 			log.Print(s)
 
-		case <-done:
-			break loop
+		case <-q:
+			done <- true
 		}
 	}
 }
