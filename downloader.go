@@ -28,7 +28,7 @@ func (d *Downloader) run() {
 		var err error
 		var uri string
 
-		for uri = range d.Work:
+		for uri = range d.Work {
 			req, _ = http.NewRequest("GET", uri, nil)
 			resp, err = http.DefaultClient.Do(req)
 
