@@ -8,12 +8,14 @@ import (
 
 type Downloader struct {
 	Work   chan string
+	TransferedBytes chan int64
 	Output io.Writer
 }
 
 func NewDownloader(work chan string, output io.Writer) *Downloader {
 	d := &Downloader{
 		Work:   work,
+		TransferedBytes: make(chan int64),
 		Output: output,
 	}
 
@@ -27,6 +29,7 @@ func (d *Downloader) run() {
 		var resp *http.Response
 		var err error
 		var uri string
+		var n int64
 
 		for uri = range d.Work {
 			req, _ = http.NewRequest("GET", uri, nil)
@@ -47,7 +50,8 @@ func (d *Downloader) run() {
 				continue
 			}
 
-			io.Copy(d.Output, resp.Body)
+			n, _ = io.Copy(d.Output, resp.Body)
+			d.TransferedBytes <- n
 			resp.Body.Close()
 		}
 	}()

@@ -29,7 +29,7 @@ func main() {
 
 	q := make(chan bool)
 
-	status, done := streaming.Watch(*channelname, *variant, os.Stdout)
+	status, tb, done := streaming.Watch(*channelname, *variant, os.Stdout)
 	log.Print("Press q<enter> to exit.")
 
 	go awaitQuitKey(q)
@@ -37,6 +37,13 @@ func main() {
 loop:
 	for {
 		select {
+		case n, ok := <-tb:
+			if !ok {
+				break loop
+			}
+
+			log.Printf("%d bytes transferred.", n)
+
 		case s, ok := <-status:
 			if !ok {
 				break loop
