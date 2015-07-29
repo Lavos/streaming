@@ -1,20 +1,25 @@
 package streaming
 
 import (
+	"io"
 	"log"
 	"net/http"
-	"io"
+	"time"
 )
 
 type Downloader struct {
 	Work   chan string
 	Output io.Writer
+
+	statusChan chan Status
 }
 
-func NewDownloader(work chan string, output io.Writer) *Downloader {
+func NewDownloader(work chan string, status chan Status, output io.Writer) *Downloader {
 	d := &Downloader{
 		Work:   work,
 		Output: output,
+
+		statusChan: status,
 	}
 
 	d.run()
@@ -27,27 +32,48 @@ func (d *Downloader) run() {
 		var resp *http.Response
 		var err error
 		var uri string
+		var n int64
+		var bytesTotal int64
+		var start time.Time
+		var elapsed int64
+		var bytesPerSecond int64
 
 		for uri = range d.Work {
 			req, _ = http.NewRequest("GET", uri, nil)
 			resp, err = http.DefaultClient.Do(req)
 
 			if err != nil {
-				log.Printf("Got error: %s", err)
+				log.Printf("[dl] Got error: %s", err)
 				continue
 			}
 
 			if resp == nil {
-				log.Print("Got nil response.")
+				log.Print("[dl] Got nil response.")
 				continue
 			}
 
 			if resp.StatusCode != 200 {
-				log.Printf("Got non-200: %s", resp.Status)
+				log.Printf("[dl] Got non-200: %s", resp.Status)
 				continue
 			}
 
-			io.Copy(d.Output, resp.Body)
+
+			start = time.Now()
+			n, _ = io.Copy(d.Output, resp.Body)
+			bytesTotal += n
+
+			elapsed = int64(time.Now().Sub(start).Seconds())
+
+			if elapsed != 0 {
+				bytesPerSecond = n / elapsed
+			}
+
+			d.statusChan <- Status{
+				BytesTotal: bytesTotal,
+				BytesPerSecond: bytesPerSecond,
+				LastFile: uri,
+			}
+
 			resp.Body.Close()
 		}
 	}()

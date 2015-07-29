@@ -5,12 +5,12 @@ import (
 	"fmt"
 	"github.com/golang/groupcache/lru"
 	"github.com/kz26/m3u8"
-	// "log"
+	"log"
 	"net/http"
 	"net/url"
 	"path"
-	"time"
 	"strings"
+	"time"
 )
 
 const (
@@ -19,26 +19,25 @@ const (
 )
 
 type Playlister struct {
-	ChannelName string
+	ChannelName    string
 	DesiredVariant string
-	Variant *m3u8.Variant
 
-	Token       string
-	Signature   string
+	Token     string
+	Signature string
 
-	Output      chan string
-	Status      chan string
-	Done	    chan bool
+	Output chan string
+	Status chan Status
+	Done   chan bool
 }
 
 func NewPlaylister(channelName, variant string) *Playlister {
 	p := &Playlister{
-		ChannelName: channelName,
+		ChannelName:    channelName,
 		DesiredVariant: variant,
 
-		Output:      make(chan string, 1024),
-		Status: make(chan string),
-		Done: make(chan bool),
+		Output: make(chan string, 1024),
+		Status: make(chan Status),
+		Done:   make(chan bool),
 	}
 
 	p.run()
@@ -56,7 +55,7 @@ func (p *Playlister) getToken() error {
 	}
 
 	if resp.StatusCode != 200 {
-		return fmt.Errorf("Non-200 code returned for TOKEN: %s", resp.StatusCode)
+		return fmt.Errorf("[pl] Non-200 code returned for TOKEN: %s", resp.StatusCode)
 	}
 
 	var t TokenResponse
@@ -74,18 +73,18 @@ func (p *Playlister) getToken() error {
 	return nil
 }
 
-func (p *Playlister) getVariant() error {
+func (p *Playlister) getVariant() (*m3u8.Variant, error) {
 	base_url, _ := url.Parse(fmt.Sprintf(USHER_API_MASK, p.ChannelName, p.Token, p.Signature, 123456))
 	req, _ := http.NewRequest("GET", base_url.String(), nil)
 
 	resp, err := http.DefaultClient.Do(req)
 
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	if resp != nil && resp.StatusCode != 200 {
-		return fmt.Errorf("Got a response from USHER: %s", resp.Status)
+		return nil, fmt.Errorf("[pl] Got a response from USHER: %s", resp.Status)
 	}
 
 	playlist, _, _ := m3u8.DecodeFrom(resp.Body, true)
@@ -105,36 +104,38 @@ func (p *Playlister) getVariant() error {
 		}
 	}
 
-	p.Status <- fmt.Sprintf("Variants found: %s", strings.Join(variants, " "))
+	log.Printf("[pl] Variants found: %s", strings.Join(variants, " "))
 
 	if target_variant == nil {
-		return fmt.Errorf("Variant specified not found for this stream.")
+		return nil, fmt.Errorf("[pl] Variant specified not found for this stream.")
 	}
 
-	p.Variant = target_variant
-	return nil
+	log.Printf("[pl] Loading variant: %s", p.DesiredVariant)
+
+	return target_variant, nil
 }
 
 func (p *Playlister) run() {
 	go func() {
+		var variant *m3u8.Variant
+		var variant_url *url.URL
+
 		err := p.getToken()
 
 		if err != nil {
-			p.Status <- err.Error()
 			close(p.Status)
 			return
 		}
 
-		err = p.getVariant()
+		variant, err = p.getVariant()
 
 		if err != nil {
-			p.Status <- err.Error()
 			close(p.Status)
 			return
 		}
 
+		variant_url, _ = url.Parse(variant.URI)
 		cache := lru.New(1024)
-		variant_url, _ := url.Parse(p.Variant.URI)
 
 		var req *http.Request
 		var resp *http.Response
@@ -142,7 +143,7 @@ func (p *Playlister) run() {
 		var playlist m3u8.Playlist
 		var media_playlist *m3u8.MediaPlaylist
 
-loop:
+	loop:
 		for {
 			select {
 			case <-p.Done:
@@ -150,12 +151,23 @@ loop:
 				break loop
 
 			default:
-				req, _ = http.NewRequest("GET", p.Variant.URI, nil)
+				req, _ = http.NewRequest("GET", variant.URI, nil)
 				resp, err = http.DefaultClient.Do(req)
 
 				if err != nil || (resp != nil && resp.StatusCode != 200) {
-					p.Status <- fmt.Sprintf("Got a response from VARIANT: %s", resp.Status)
-					time.Sleep(5 * time.Second)
+					log.Printf("[pl] Got a response from VARIANT: %s", resp.Status)
+					log.Printf("[pl] Attempting to get new variant location.")
+
+					variant, err = p.getVariant()
+
+					if err != nil {
+						log.Printf("[pl] Could not get new variant location: %s", err)
+						close(p.Status)
+						break loop
+					}
+
+					variant_url, _ = url.Parse(variant.URI)
+					log.Printf("[pl] Success. New variant location found: %s", variant_url)
 					continue
 				}
 
@@ -174,7 +186,7 @@ loop:
 							p.Output <- fmt.Sprintf("%s://%s%s/%s", variant_url.Scheme, variant_url.Host, dir, segment.URI)
 							cache.Add(segment.URI, nil)
 
-							p.Status <- fmt.Sprintf("Queueing %s for downloading.", segment.URI)
+							// p.Status <- fmt.Sprintf("[pl] Queueing %s for downloading.", segment.URI)
 						}
 					}
 				}

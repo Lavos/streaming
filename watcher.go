@@ -4,9 +4,9 @@ import (
 	"io"
 )
 
-func Watch(channelName string, variant string, out io.Writer) (chan string, chan bool) {
+func Watch(channelName string, variant string, out io.Writer) (chan Status, chan bool) {
 	p := NewPlaylister(channelName, variant)
-	NewDownloader(p.Output, out)
+	NewDownloader(p.Output, p.Status, out)
 
 	return p.Status, p.Done
 }

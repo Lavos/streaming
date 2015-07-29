@@ -1,15 +1,17 @@
 package main
 
 import (
+	"flag"
 	"github.com/Lavos/streaming"
 	"log"
-	"flag"
+	"math"
+	"fmt"
 	"os"
 )
 
 var (
 	channelname = flag.String("channel", "gamesdonequick", "The name of the channel.")
-	variant = flag.String("variant", "chunked", "The variant of the stream.")
+	variant     = flag.String("variant", "chunked", "The variant of the stream.")
 )
 
 func awaitQuitKey(done chan bool) {
@@ -22,6 +24,28 @@ func awaitQuitKey(done chan bool) {
 			done <- true
 		}
 	}
+}
+
+func humanReadable (value int64) string {
+/* def sizeof_fmt(num, suffix='B'):
+    for unit in ['','Ki','Mi','Gi','Ti','Pi','Ei','Zi']:
+        if abs(num) < 1024.0:
+            return "%3.1f%s%s" % (num, unit, suffix)
+        num /= 1024.0
+    return "%.1f%s%s" % (num, 'Yi', suffix)
+*/
+	num := float64(value)
+	units := []string{"", "Ki", "Mi", "Gi", "Ti", "Pi", "Ei", "Zi"}
+
+	for _, unit := range units {
+		if math.Abs(num) < 1024.0 {
+			return fmt.Sprintf("%3.1f%sB", num, unit)
+		}
+
+		num = num / 1024.0
+	}
+
+	return fmt.Sprintf("%.1fYiB", num)
 }
 
 func main() {
@@ -42,7 +66,7 @@ loop:
 				break loop
 			}
 
-			log.Print(s)
+			fmt.Fprintf(os.Stderr, "BytesTotal: %s, BytesPerSecond: %s\r", humanReadable(s.BytesTotal), humanReadable(s.BytesPerSecond))
 
 		case <-q:
 			done <- true
