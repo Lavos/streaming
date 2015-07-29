@@ -35,7 +35,7 @@ func (d *Downloader) run() {
 		var n int64
 		var bytesTotal int64
 		var start time.Time
-		var elapsed int64
+		var elapsed float64
 		var bytesPerSecond int64
 
 		for uri = range d.Work {
@@ -57,15 +57,14 @@ func (d *Downloader) run() {
 				continue
 			}
 
-
 			start = time.Now()
 			n, _ = io.Copy(d.Output, resp.Body)
 			bytesTotal += n
 
-			elapsed = int64(time.Now().Sub(start).Seconds())
+			elapsed = time.Now().Sub(start).Seconds()
 
 			if elapsed != 0 {
-				bytesPerSecond = n / elapsed
+				bytesPerSecond = int64(float64(n) / elapsed)
 			}
 
 			d.statusChan <- Status{
