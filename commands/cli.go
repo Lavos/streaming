@@ -66,7 +66,7 @@ loop:
 				break loop
 			}
 
-			fmt.Fprintf(os.Stderr, "BytesTotal: %s, DownloadRate: %s\r\033[K", humanReadable(s.BytesTotal), humanReadable(s.BytesPerSecond))
+			fmt.Fprintf(os.Stderr, "\033[KBytesTotal: %s, DownloadRate: %s\r", humanReadable(s.BytesTotal), humanReadable(s.BytesPerSecond))
 
 		case <-q:
 			done <- true
