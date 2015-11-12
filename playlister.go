@@ -54,7 +54,7 @@ func (p *Playlister) getToken() error {
 		return err
 	}
 
-	if resp.StatusCode != 200 {
+	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("[pl] Non-200 code returned for TOKEN: %s", resp.StatusCode)
 	}
 
@@ -83,7 +83,7 @@ func (p *Playlister) getVariant() (*m3u8.Variant, error) {
 		return nil, err
 	}
 
-	if resp != nil && resp.StatusCode != 200 {
+	if resp != nil && resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("[pl] Got a response from USHER: %s", resp.Status)
 	}
 
@@ -154,9 +154,16 @@ func (p *Playlister) run() {
 				req, _ = http.NewRequest("GET", variant.URI, nil)
 				resp, err = http.DefaultClient.Do(req)
 
-				if err != nil || (resp != nil && resp.StatusCode != 200) {
-					log.Printf("[pl] Got a response from VARIANT: %s", resp.Status)
-					log.Printf("[pl] Attempting to get new variant location.")
+				if err != nil || (resp != nil && resp.StatusCode != http.StatusOK) {
+					if err != nil {
+						log.Printf("[pl] Got a ERROR from VARIANT: %s", err)
+						log.Printf("[pl] Attempting to get new variant location.")
+					}
+
+					if resp != nil {
+						log.Printf("[pl] Got a response from VARIANT: %s", resp.Status)
+						log.Printf("[pl] Attempting to get new variant location.")
+					}
 
 					variant, err = p.getVariant()
 
