@@ -3,7 +3,6 @@ package main
 import (
 	"flag"
 	"github.com/Lavos/streaming"
-	"math"
 	"fmt"
 	"log"
 	"syscall"
@@ -29,21 +28,6 @@ var (
 	fifo_path string
 )
 
-func humanReadable (value int64) string {
-	num := float64(value)
-	units := []string{"", "Ki", "Mi", "Gi", "Ti", "Pi", "Ei", "Zi"}
-
-	for _, unit := range units {
-		if math.Abs(num) < 1024.0 {
-			return fmt.Sprintf("%3.1f%sB", num, unit)
-		}
-
-		num = num / 1024.0
-	}
-
-	return fmt.Sprintf("%.1fYiB", num)
-}
-
 func omx() {
 	var err error
 
@@ -63,10 +47,10 @@ func omx() {
 
 	cmd := exec.Command("omxplayer", args...)
 	cmd.Stderr = os.Stderr
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
 
 	err = cmd.Start()
-
-	fmt.Printf("Command: %#v\n", cmd)
 
 	if err != nil {
 		log.Fatal(err)
@@ -85,11 +69,7 @@ func main() {
 	syscall.Mkfifo(fifo_path, 0722)
 
 	// open fifo
-	fmt.Printf("here.\n")
-
-	file, err := os.Open(fifo_path)
-
-	fmt.Printf("here 2.\n")
+	file, err := os.OpenFile(fifo_path, os.O_WRONLY, 0)
 
 	if err != nil {
 		log.Fatalf("Could not open fifo `%s`. Error: %s", fifo_path, err)
@@ -106,15 +86,14 @@ func main() {
 loop:
 	for {
 		select {
-		case s, ok := <-status:
+		case _, ok := <-status:
 			if !ok {
 				break loop
 			}
 
-			fmt.Fprintf(os.Stderr, "\033[KBytesTotal: %s, DownloadRate: %s\r", humanReadable(s.BytesTotal), humanReadable(s.BytesPerSecond))
-
 		case <-sig:
 			done <- true
+			break loop
 		}
 	}
 }
