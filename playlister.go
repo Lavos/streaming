@@ -127,14 +127,6 @@ func (p *Playlister) run() {
 			return
 		}
 
-		variant, err = p.getVariant()
-
-		if err != nil {
-			close(p.Status)
-			return
-		}
-
-		variant_url, _ = url.Parse(variant.URI)
 		cache := lru.New(1024)
 
 		var req *http.Request
@@ -142,6 +134,28 @@ func (p *Playlister) run() {
 		var dir string
 		var playlist m3u8.Playlist
 		var media_playlist *m3u8.MediaPlaylist
+
+
+		// first, get variant URL
+		var variantconter int
+
+		for {
+			if variantconter == 5 {
+				log.Printf("Could not get variant URL. Aborting.")
+				close(p.Status)
+				return
+			}
+
+			variant, err = p.getVariant()
+
+			if err != nil {
+				log.Printf("[pl][%d] Could not get variant: %s", variantconter, err)
+				variantconter++
+				continue
+			}
+
+			break
+		}
 
 	loop:
 		for {
@@ -151,31 +165,43 @@ func (p *Playlister) run() {
 				break loop
 
 			default:
-				req, _ = http.NewRequest("GET", variant.URI, nil)
-				resp, err = http.DefaultClient.Do(req)
+				var retrycounter int
 
-				if err != nil || (resp != nil && resp.StatusCode != http.StatusOK) {
-					if err != nil {
-						log.Printf("[pl] Got a ERROR from VARIANT: %s", err)
-						log.Printf("[pl] Attempting to get new variant location.")
-					}
-
-					if resp != nil {
-						log.Printf("[pl] Got a response from VARIANT: %s", resp.Status)
-						log.Printf("[pl] Attempting to get new variant location.")
-					}
-
-					variant, err = p.getVariant()
-
-					if err != nil {
-						log.Printf("[pl] Could not get new variant location: %s", err)
+				for {
+					if retrycounter == 5 {
+						log.Printf("[pl] Retries exhausted. Closing.")
 						close(p.Status)
 						break loop
 					}
 
+					// second, try to get playlist from body
+					req, _ = http.NewRequest("GET", variant.URI, nil)
+					resp, err = http.DefaultClient.Do(req)
+
+					if err != nil || (resp != nil && resp.StatusCode != http.StatusOK) {
+						if err != nil {
+							log.Printf("[pl][%d] Got an ERROR from VARIANT: %s", retrycounter, err)
+							log.Printf("[pl][%d] Attempting to get new variant location.", retrycounter)
+						}
+
+						if resp != nil {
+							log.Printf("[pl][%d] Got a response from VARIANT: %s", retrycounter, resp.Status)
+							log.Printf("[pl][%d] Attempting to get new variant location.", retrycounter)
+						}
+
+						variant, err = p.getVariant()
+
+						if err != nil {
+							log.Printf("[pl][%d] Could not get variant: %s", variantconter, err)
+							time.Sleep(1 * time.Second)
+							retrycounter++
+							continue
+						}
+					}
+
+					// log.Printf("[pl][%d] Success. New variant location found: %s", retrycounter, variant_url)
 					variant_url, _ = url.Parse(variant.URI)
-					log.Printf("[pl] Success. New variant location found: %s", variant_url)
-					continue
+					break
 				}
 
 				dir = path.Dir(variant_url.Path)

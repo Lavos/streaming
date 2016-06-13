@@ -3,10 +3,10 @@ package main
 import (
 	"flag"
 	"github.com/Lavos/streaming"
-	"log"
 	"math"
 	"fmt"
 	"os"
+	"os/signal"
 )
 
 var (
@@ -14,26 +14,7 @@ var (
 	variant     = flag.String("variant", "chunked", "The variant of the stream.")
 )
 
-func awaitQuitKey(done chan bool) {
-	var buf [1]byte
-
-	for {
-		_, err := os.Stdin.Read(buf[:])
-
-		if err != nil || buf[0] == 'q' {
-			done <- true
-		}
-	}
-}
-
 func humanReadable (value int64) string {
-/* def sizeof_fmt(num, suffix='B'):
-    for unit in ['','Ki','Mi','Gi','Ti','Pi','Ei','Zi']:
-        if abs(num) < 1024.0:
-            return "%3.1f%s%s" % (num, unit, suffix)
-        num /= 1024.0
-    return "%.1f%s%s" % (num, 'Yi', suffix)
-*/
 	num := float64(value)
 	units := []string{"", "Ki", "Mi", "Gi", "Ti", "Pi", "Ei", "Zi"}
 
@@ -51,12 +32,10 @@ func humanReadable (value int64) string {
 func main() {
 	flag.Parse()
 
-	q := make(chan bool)
-
 	status, done := streaming.Watch(*channelname, *variant, os.Stdout)
-	log.Print("Press q<enter> to exit.")
 
-	go awaitQuitKey(q)
+	sig := make(chan os.Signal, 1)
+	signal.Notify(sig, os.Interrupt, os.Kill)
 
 loop:
 	for {
@@ -68,8 +47,9 @@ loop:
 
 			fmt.Fprintf(os.Stderr, "\033[KBytesTotal: %s, DownloadRate: %s\r", humanReadable(s.BytesTotal), humanReadable(s.BytesPerSecond))
 
-		case <-q:
+		case <-sig:
 			done <- true
+			break loop
 		}
 	}
 }
