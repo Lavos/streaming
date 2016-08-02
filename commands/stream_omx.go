@@ -28,7 +28,7 @@ var (
 	fifo_path string
 )
 
-func omx() {
+func omx(done chan bool) {
 	var err error
 
 	// exec omxplayer
@@ -37,7 +37,7 @@ func omx() {
 	}
 
 	if *sector != -1 {
-		if *sector < len(sectors) - 1 {
+		if *sector <= len(sectors) - 1 {
 			dims := sectors[*sector]
 			args = append(args, []string{"--win", dims, "--layer", fmt.Sprintf("%d", *sector)}...)
 		}
@@ -57,12 +57,14 @@ func omx() {
 	}
 
 	cmd.Wait()
+	done <- true
 }
 
 func main() {
 	flag.Parse()
 
-	go omx()
+	omx_done := make(chan bool)
+	go omx(omx_done)
 
 	// make fifo
 	fifo_path = fmt.Sprintf("/tmp/stream_%d.fifo", time.Now().UTC().UnixNano())
@@ -94,6 +96,10 @@ loop:
 		case <-sig:
 			done <- true
 			break loop
+
+		case <-omx_done:
+			done <- true
+			break loop 
 		}
 	}
 }

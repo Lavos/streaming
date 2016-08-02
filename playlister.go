@@ -137,10 +137,10 @@ func (p *Playlister) run() {
 
 
 		// first, get variant URL
-		var variantconter int
+		var variantcounter int
 
 		for {
-			if variantconter == 5 {
+			if variantcounter == 5 {
 				log.Printf("Could not get variant URL. Aborting.")
 				close(p.Status)
 				return
@@ -149,8 +149,8 @@ func (p *Playlister) run() {
 			variant, err = p.getVariant()
 
 			if err != nil {
-				log.Printf("[pl][%d] Could not get variant: %s", variantconter, err)
-				variantconter++
+				log.Printf("[pl][%d] Could not get variant: %s", variantcounter, err)
+				variantcounter++
 				continue
 			}
 
@@ -189,13 +189,26 @@ func (p *Playlister) run() {
 							log.Printf("[pl][%d] Attempting to get new variant location.", retrycounter)
 						}
 
-						variant, err = p.getVariant()
 
-						if err != nil {
-							log.Printf("[pl][%d] Could not get variant: %s", variantconter, err)
-							time.Sleep(1 * time.Second)
-							retrycounter++
-							continue
+						variantcounter = 0
+
+						for {
+							if variantcounter == 5 {
+								log.Printf("Could not get variant URL. Aborting.")
+								close(p.Status)
+								return
+							}
+
+							variant, err = p.getVariant()
+
+							if err != nil {
+								log.Printf("[pl][%d] Could not get variant: %s", variantcounter, err)
+								time.Sleep(1 * time.Second)
+								variantcounter++
+								continue
+							}
+
+							break
 						}
 					}
 
