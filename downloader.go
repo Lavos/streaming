@@ -12,14 +12,16 @@ type Downloader struct {
 	Output io.Writer
 
 	statusChan chan Status
+	logger *log.Logger
 }
 
-func NewDownloader(work chan string, status chan Status, output io.Writer) *Downloader {
+func NewDownloader(work chan string, status chan Status, output io.Writer, l *log.Logger) *Downloader {
 	d := &Downloader{
 		Work:   work,
 		Output: output,
 
 		statusChan: status,
+		logger: l,
 	}
 
 	d.run()
@@ -43,17 +45,17 @@ func (d *Downloader) run() {
 			resp, err = http.DefaultClient.Do(req)
 
 			if err != nil {
-				log.Printf("[dl] Got error: %s", err)
+				d.logger.Printf("[dl] Got error: %s", err)
 				continue
 			}
 
 			if resp == nil {
-				log.Print("[dl] Got nil response.")
+				d.logger.Printf("[dl] Got nil response.")
 				continue
 			}
 
 			if resp.StatusCode != 200 {
-				log.Printf("[dl] Got non-200: %s", resp.Status)
+				d.logger.Printf("[dl] Got non-200: %s", resp.Status)
 				continue
 			}
 

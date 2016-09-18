@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+
+	"github.com/kelseyhightower/envconfig"
 )
 
 var (
@@ -30,9 +32,16 @@ func humanReadable (value int64) string {
 }
 
 func main() {
+	var c streaming.Configuration
+	envconfig.MustProcess("TWITCH", &c)
+
 	flag.Parse()
 
-	status, done := streaming.Watch(*channelname, *variant, os.Stdout)
+	// send stream data to STDOUT
+	p := streaming.NewPlaylister(c, *channelname, *variant, os.Stdout)
+
+	fmt.Printf("%#v\n", p)
+	status := p.Status()
 
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, os.Interrupt, os.Kill)
@@ -48,7 +57,7 @@ loop:
 			fmt.Fprintf(os.Stderr, "\033[KBytesTotal: %s, DownloadRate: %s\r", humanReadable(s.BytesTotal), humanReadable(s.BytesPerSecond))
 
 		case <-sig:
-			done <- true
+			p.Done()
 			break loop
 		}
 	}

@@ -7,9 +7,10 @@ import (
 	"log"
 	"syscall"
 	"os"
-	"os/signal"
 	"os/exec"
 	"time"
+
+	"github.com/kelseyhightower/envconfig"
 )
 
 
@@ -61,6 +62,9 @@ func omx(done chan bool) {
 }
 
 func main() {
+	var c streaming.Configuration
+	envconfig.MustProcess("TWITCH", &c)
+
 	flag.Parse()
 
 	omx_done := make(chan bool)
@@ -80,10 +84,9 @@ func main() {
 	log.Printf("fifo `%s` opened.", fifo_path)
 
 	// send stream data to fifo
-	status, done := streaming.Watch(*channelname, *variant, file)
+	p := streaming.NewPlaylister(c, *channelname, *variant, file)
 
-	sig := make(chan os.Signal, 1)
-	signal.Notify(sig, os.Interrupt, os.Kill)
+	status := p.Status()
 
 loop:
 	for {
@@ -93,13 +96,8 @@ loop:
 				break loop
 			}
 
-		case <-sig:
-			done <- true
-			break loop
-
 		case <-omx_done:
-			done <- true
-			break loop 
+			p.Done()
 		}
 	}
 }
