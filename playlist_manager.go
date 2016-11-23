@@ -12,6 +12,7 @@ import (
 	"time"
 	"os"
 	"io"
+	"path"
 	"io/ioutil"
 )
 
@@ -175,6 +176,8 @@ func (p *PlaylistManager) run() {
 		var req *http.Request
 		var resp *http.Response
 		var playlist m3u8.Playlist
+		var dir string
+		var segment_url string
 		var media_playlist *m3u8.MediaPlaylist
 
 
@@ -270,12 +273,20 @@ func (p *PlaylistManager) run() {
 					if segment != nil {
 						p.loggerVerbose.Printf("Segment: %#v", segment)
 
-						_, hit := cache.Get(segment.URI)
+						// check if it's a relative or absolute URL
+						if strings.HasPrefix(segment.URI, "http") {
+							segment_url = segment.URI
+						} else {
+							dir = path.Dir(variant_url.Path)
+							segment_url = fmt.Sprintf("%s://%s%s/%s", variant_url.Scheme, variant_url.Host, dir, segment.URI)
+						}
+
+						_, hit := cache.Get(segment_url)
 
 						if !hit {
-							p.loggerVerbose.Printf("Queueing %s for downloading.", segment.URI)
-							p.outputChan <- segment.URI
-							cache.Add(segment.URI, nil)
+							p.loggerVerbose.Printf("Queueing %s for downloading.", segment_url)
+							p.outputChan <- segment_url
+							cache.Add(segment_url, nil)
 						}
 					}
 				}
