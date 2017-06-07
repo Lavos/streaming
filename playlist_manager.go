@@ -17,8 +17,8 @@ import (
 )
 
 const (
-	USHER_API_MASK = "http://usher.twitch.tv/api/channel/hls/%s.m3u8?player=twitchweb&token=%s&sig=%s&$allow_audio_only=true&allow_source=true&type=any&p=%d"
-	TOKEN_API_MASK = "http://api.twitch.tv/api/channels/%s/access_token"
+	USHER_API_MASK = "http://usher.twitch.tv/api/channel/hls/%s.m3u8"
+	TOKEN_API_MASK = "https://api.twitch.tv/api/channels/%s/access_token"
 )
 
 type Configuration struct {
@@ -78,7 +78,15 @@ func (p *PlaylistManager) Done() {
 }
 
 func (p *PlaylistManager) getToken() error {
-	req, _ := http.NewRequest("GET", fmt.Sprintf(TOKEN_API_MASK, p.ChannelName), nil)
+	u, _ := url.Parse(fmt.Sprintf(TOKEN_API_MASK, p.ChannelName))
+	v := url.Values{}
+	v.Add("adblock", "false")
+	v.Add("platform", "web")
+	v.Add("player_type", "site")
+
+	u.RawQuery = v.Encode()
+
+	req, _ := http.NewRequest("GET", u.String(), nil)
 	req.Header.Add("Client-ID", p.conf.ClientID)
 
 	p.loggerVerbose.Printf("Get Token Request: %#v %s", req.Header, req.URL)
@@ -113,7 +121,19 @@ func (p *PlaylistManager) getToken() error {
 }
 
 func (p *PlaylistManager) getVariant() (*m3u8.Variant, error) {
-	base_url, _ := url.Parse(fmt.Sprintf(USHER_API_MASK, p.ChannelName, p.Token, p.Signature, 123456))
+	base_url, _ := url.Parse(fmt.Sprintf(USHER_API_MASK, p.ChannelName))
+
+	v := url.Values{}
+	v.Add("player_backend", "html5")
+	v.Add("token", p.Token)
+	v.Add("sig", p.Signature)
+	v.Add("allow_audio_only", "true")
+	v.Add("allow_source", "true")
+	v.Add("allow_spectre", "true")
+	v.Add("type", "any")
+	v.Add("p", "123456")
+
+	base_url.RawQuery = v.Encode()
 	req, _ := http.NewRequest("GET", base_url.String(), nil)
 
 	p.loggerVerbose.Printf("Get Variant Request: %#v %#v", req.Header, req.URL)
