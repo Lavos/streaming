@@ -129,7 +129,7 @@ func (p *PlaylistManager) getVariant() (*m3u8.Variant, error) {
 	v.Add("sig", p.Signature)
 	v.Add("allow_audio_only", "true")
 	v.Add("allow_source", "true")
-	v.Add("allow_spectre", "true")
+	v.Add("allow_spectre", "false")
 	v.Add("type", "any")
 	v.Add("p", "123456")
 
@@ -222,7 +222,10 @@ func (p *PlaylistManager) run() {
 			break
 		}
 
-	loop:
+		var new_segments []string
+		var foundEdge bool
+
+loop:
 		for {
 			select {
 			case <-p.doneChan:
@@ -288,6 +291,9 @@ func (p *PlaylistManager) run() {
 				media_playlist = playlist.(*m3u8.MediaPlaylist)
 
 				resp.Body.Close()
+				p.loggerVerbose.Printf("Segments found: %d", len(media_playlist.Segments))
+
+				new_segments = make([]string, 0)
 
 				for _, segment := range media_playlist.Segments {
 					if segment != nil {
@@ -304,13 +310,31 @@ func (p *PlaylistManager) run() {
 						_, hit := cache.Get(segment_url)
 
 						if !hit {
-							p.loggerVerbose.Printf("Queueing %s for downloading.", segment_url)
-							p.outputChan <- segment_url
 							cache.Add(segment_url, nil)
+							new_segments = append(new_segments, segment_url)
 						}
 					}
 				}
 
+				p.loggerVerbose.Printf("Found %d new segments.", len(new_segments))
+
+				if !foundEdge {
+					foundEdge = true
+
+					if len(new_segments) > 3 {
+						p.outputChan <- new_segments[len(new_segments) - 4]
+						p.outputChan <- new_segments[len(new_segments) - 3]
+						p.outputChan <- new_segments[len(new_segments) - 2]
+						p.outputChan <- new_segments[len(new_segments) - 1]
+					}
+				} else {
+					for _, url := range new_segments {
+						p.loggerVerbose.Printf("Queueing %s for downloading.", url)
+						p.outputChan <- url
+					}
+				}
+
+				p.loggerVerbose.Printf("Sleeping for %f seconds.", (media_playlist.TargetDuration / 2))
 				time.Sleep(time.Duration(media_playlist.TargetDuration) * time.Second)
 			}
 		}

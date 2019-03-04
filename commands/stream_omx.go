@@ -15,6 +15,7 @@ import (
 
 
 var (
+	hdmi = flag.Bool("hdmi", false, "Output audio through HDMI.")
 	channelname = flag.String("channel", "gamesdonequick", "The name of the channel.")
 	variant     = flag.String("variant", "chunked", "The variant of the stream.")
 	sector = flag.Int("sector", -1, "The location on the screen to play the video.")
@@ -34,7 +35,13 @@ func omx(done chan bool) {
 
 	// exec omxplayer
 	args := []string{
-		"-o", "local",
+		"-o",
+	}
+
+	if *hdmi {
+		args = append(args, "hdmi")
+	} else {
+		args = append(args, "local")
 	}
 
 	if *sector != -1 {
