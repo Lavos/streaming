@@ -14,15 +14,26 @@ import (
 	"io"
 	"path"
 	"io/ioutil"
+	"context"
+
+	"golang.org/x/oauth2"
 )
 
 const (
 	USHER_API_MASK = "http://usher.twitch.tv/api/channel/hls/%s.m3u8"
 	TOKEN_API_MASK = "https://api.twitch.tv/api/channels/%s/access_token"
+	TOKEN_ENDPOINT = "https://id.twitch.tv/oauth2/token"
+)
+
+var (
+	Client *http.Client = http.DefaultClient
 )
 
 type Configuration struct {
 	ClientID string
+	ClientSecret string
+	RedirectURI string `default:"http://localhost"`
+	RefreshToken string
 	Verbose bool
 }
 
@@ -40,6 +51,8 @@ type PlaylistManager struct {
 	outputChan chan string
 	statusChan chan Status
 	doneChan   chan bool
+
+	tokensrc oauth2.TokenSource
 }
 
 func NewPlaylister(c Configuration, channelName, variant string, out io.Writer) Playlister {
@@ -48,6 +61,8 @@ func NewPlaylister(c Configuration, channelName, variant string, out io.Writer) 
 
 	if c.Verbose {
 		lv.SetOutput(os.Stderr)
+		lv.Printf("Logging verbosely.")
+		lv.Printf("Using configuration: %#v", c)
 	}
 
 	p := &PlaylistManager{
@@ -61,6 +76,22 @@ func NewPlaylister(c Configuration, channelName, variant string, out io.Writer) 
 		outputChan: make(chan string, 1024),
 		statusChan: make(chan Status),
 		doneChan:   make(chan bool),
+	}
+
+	if c.RefreshToken != "" {
+		oc := &oauth2.Config{
+			ClientID: c.ClientID,
+			ClientSecret: c.ClientSecret,
+			Scopes: []string{},
+			Endpoint: oauth2.Endpoint{
+				TokenURL: TOKEN_ENDPOINT,
+			},
+			RedirectURL: c.RedirectURI,
+		}
+
+		p.tokensrc = oc.TokenSource(context.Background(), &oauth2.Token{
+			RefreshToken: c.RefreshToken,
+		})
 	}
 
 	NewDownloader(p.outputChan, p.statusChan, out, lv)
@@ -80,9 +111,25 @@ func (p *PlaylistManager) Done() {
 func (p *PlaylistManager) getToken() error {
 	u, _ := url.Parse(fmt.Sprintf(TOKEN_API_MASK, p.ChannelName))
 	v := url.Values{}
+	v.Add("need_https", "false")
 	v.Add("adblock", "false")
 	v.Add("platform", "web")
+	v.Add("player_backend", "mediaplayer")
 	v.Add("player_type", "site")
+
+	if p.tokensrc != nil {
+		token, err := p.tokensrc.Token()
+
+		if err != nil {
+			p.loggerStandard.Printf("Could not get Oauth2 Token: %s - stream viewership will be anonymous.", err)
+		} else {
+			p.loggerVerbose.Printf("Oauth2 Token: %#v", token)
+			p.loggerStandard.Printf("Stream viewership is authenticated.")
+			v.Add("oauth_token", token.AccessToken)
+		}
+	} else {
+		p.loggerStandard.Printf("Stream viewership is anonymous.")
+	}
 
 	u.RawQuery = v.Encode()
 

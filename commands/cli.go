@@ -40,7 +40,6 @@ func main() {
 	// send stream data to STDOUT
 	p := streaming.NewPlaylister(c, *channelname, *variant, os.Stdout)
 
-	fmt.Printf("%#v\n", p)
 	status := p.Status()
 
 	sig := make(chan os.Signal, 1)
