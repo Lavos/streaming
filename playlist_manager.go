@@ -29,14 +29,6 @@ var (
 	Client *http.Client = http.DefaultClient
 )
 
-type Configuration struct {
-	ClientID string
-	ClientSecret string
-	RedirectURI string `default:"http://localhost"`
-	RefreshToken string
-	Verbose bool
-}
-
 type PlaylistManager struct {
 	conf Configuration
 	loggerVerbose *log.Logger
@@ -78,7 +70,7 @@ func NewPlaylister(c Configuration, channelName, variant string, out io.Writer) 
 		doneChan:   make(chan bool),
 	}
 
-	if c.RefreshToken != "" {
+	if c.Authenticate && c.RefreshToken != "" {
 		oc := &oauth2.Config{
 			ClientID: c.ClientID,
 			ClientSecret: c.ClientSecret,
@@ -117,7 +109,10 @@ func (p *PlaylistManager) getToken() error {
 	v.Add("player_backend", "mediaplayer")
 	v.Add("player_type", "site")
 
+	req, _ := http.NewRequest("GET", u.String(), nil)
+
 	if p.tokensrc != nil {
+		req.Header.Add("Client-ID", p.conf.ClientID)
 		token, err := p.tokensrc.Token()
 
 		if err != nil {
@@ -127,14 +122,16 @@ func (p *PlaylistManager) getToken() error {
 			p.loggerStandard.Printf("Stream viewership is authenticated.")
 			v.Add("oauth_token", token.AccessToken)
 		}
+	} else if p.conf.OAuth2Token != "" {
+		req.Header.Add("Client-ID", "kimne78kx3ncx6brgo4mv6wki5h1ko")
+		req.Header.Add("Authorization", fmt.Sprintf("OAuth %s", p.conf.OAuth2Token))
+		p.loggerStandard.Printf("Stream viewership is authenticated using Twitch's ClientID.")
 	} else {
+
 		p.loggerStandard.Printf("Stream viewership is anonymous.")
 	}
 
 	u.RawQuery = v.Encode()
-
-	req, _ := http.NewRequest("GET", u.String(), nil)
-	req.Header.Add("Client-ID", p.conf.ClientID)
 
 	p.loggerVerbose.Printf("Get Token Request: %#v %s", req.Header, req.URL)
 
@@ -145,7 +142,7 @@ func (p *PlaylistManager) getToken() error {
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("Non-200 code returned for TOKEN: %s", resp.StatusCode)
+		return fmt.Errorf("Non-200 code returned for TOKEN: %s", resp.Status)
 	}
 
 	var t TokenResponse
