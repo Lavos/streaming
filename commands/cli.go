@@ -53,7 +53,7 @@ loop:
 				break loop
 			}
 
-			fmt.Fprintf(os.Stderr, "\033[KBytesTotal: %s, DownloadRate: %s\r", humanReadable(s.BytesTotal), humanReadable(s.BytesPerSecond))
+			fmt.Fprintf(os.Stderr, "\033[Channel: %s, KBytesTotal: %s, DownloadRate: %s\r", *channelname, humanReadable(s.BytesTotal), humanReadable(s.BytesPerSecond))
 
 		case <-sig:
 			p.Done()

@@ -66,7 +66,7 @@ func NewPlaylister(c Configuration, channelName, variant string, out io.Writer) 
 		DesiredVariant: variant,
 
 		outputChan: make(chan string, 1024),
-		statusChan: make(chan Status),
+		statusChan: make(chan Status, 1024),
 		doneChan:   make(chan bool),
 	}
 
@@ -268,9 +268,13 @@ func (p *PlaylistManager) run() {
 
 		var new_segments []string
 		var foundEdge bool
+		var leadTime time.Time
+		var leadDuration time.Duration
 
 loop:
 		for {
+			leadTime = time.Now()
+
 			select {
 			case <-p.doneChan:
 				p.stop()
@@ -362,6 +366,14 @@ loop:
 
 				p.loggerVerbose.Printf("Found %d new segments.", len(new_segments))
 
+				if len(new_segments) == 0 {
+					p.loggerVerbose.Printf("No Segments Found in %s", time.Now().Sub(leadTime))
+					leadDuration = (time.Duration(media_playlist.TargetDuration / 2) * time.Second) - time.Now().Sub(leadTime)
+					p.loggerVerbose.Printf("Sleeping for %s", leadDuration)
+					time.Sleep(leadDuration)
+					continue loop
+				}
+
 				if !foundEdge {
 					foundEdge = true
 
@@ -378,8 +390,11 @@ loop:
 					}
 				}
 
-				p.loggerVerbose.Printf("Sleeping for %f seconds.", (media_playlist.TargetDuration / 2))
-				time.Sleep(time.Duration(media_playlist.TargetDuration) * time.Second)
+				p.loggerVerbose.Printf("Segments Found in %s", time.Now().Sub(leadTime))
+				leadDuration = (time.Duration(media_playlist.TargetDuration) * time.Second) - time.Now().Sub(leadTime)
+				p.loggerVerbose.Printf("Sleeping for %s", leadDuration)
+				time.Sleep(leadDuration)
+				continue loop
 			}
 		}
 	}()
