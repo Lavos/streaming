@@ -14,15 +14,13 @@ import (
 	"io"
 	"path"
 	"io/ioutil"
-	"context"
-
-	"golang.org/x/oauth2"
+	"bytes"
+	// "context"
 )
 
 const (
-	USHER_API_MASK = "http://usher.twitch.tv/api/channel/hls/%s.m3u8"
-	TOKEN_API_MASK = "https://api.twitch.tv/api/channels/%s/access_token"
-	TOKEN_ENDPOINT = "https://id.twitch.tv/oauth2/token"
+	USHER_API_MASK = "https://usher.ttvnw.net/api/channel/hls/%s.m3u8"
+	GRAPHQL_URL = "https://gql.twitch.tv/gql"
 )
 
 var (
@@ -37,14 +35,11 @@ type PlaylistManager struct {
 	ChannelName    string
 	DesiredVariant string
 
-	Token     string
-	Signature string
+	StreamPlaybackAccessToken *StreamPlaybackAccessToken
 
 	outputChan chan string
 	statusChan chan Status
 	doneChan   chan bool
-
-	tokensrc oauth2.TokenSource
 }
 
 func NewPlaylister(c Configuration, channelName, variant string, out io.Writer) Playlister {
@@ -70,22 +65,6 @@ func NewPlaylister(c Configuration, channelName, variant string, out io.Writer) 
 		doneChan:   make(chan bool),
 	}
 
-	if c.Authenticate && c.RefreshToken != "" {
-		oc := &oauth2.Config{
-			ClientID: c.ClientID,
-			ClientSecret: c.ClientSecret,
-			Scopes: []string{},
-			Endpoint: oauth2.Endpoint{
-				TokenURL: TOKEN_ENDPOINT,
-			},
-			RedirectURL: c.RedirectURI,
-		}
-
-		p.tokensrc = oc.TokenSource(context.Background(), &oauth2.Token{
-			RefreshToken: c.RefreshToken,
-		})
-	}
-
 	NewDownloader(p.outputChan, p.statusChan, out, lv)
 	p.run()
 
@@ -101,39 +80,33 @@ func (p *PlaylistManager) Done() {
 }
 
 func (p *PlaylistManager) getToken() error {
-	u, _ := url.Parse(fmt.Sprintf(TOKEN_API_MASK, p.ChannelName))
-	v := url.Values{}
-	v.Add("need_https", "false")
-	v.Add("adblock", "false")
-	v.Add("platform", "web")
-	v.Add("player_backend", "mediaplayer")
-	v.Add("player_type", "site")
+	u, err := url.Parse(GRAPHQL_URL)
 
-	req, _ := http.NewRequest("GET", u.String(), nil)
+	if err != nil {
+		return err
+	}
 
-	if p.tokensrc != nil {
-		req.Header.Add("Client-ID", p.conf.ClientID)
-		token, err := p.tokensrc.Token()
+	query := NewPlaybackAccessTokenQuery(p.ChannelName)
 
-		if err != nil {
-			p.loggerStandard.Printf("Could not get Oauth2 Token: %s - stream viewership will be anonymous.", err)
-		} else {
-			p.loggerVerbose.Printf("Oauth2 Token: %#v", token)
-			p.loggerStandard.Printf("Stream viewership is authenticated.")
-			v.Add("oauth_token", token.AccessToken)
-		}
-	} else if p.conf.OAuth2Token != "" {
+	buf := new(bytes.Buffer)
+	err = json.NewEncoder(buf).Encode(query)
+
+	if err != nil {
+		return err
+	}
+
+	req, _ := http.NewRequest("POST", u.String(), buf)
+
+	if p.conf.OAuth2Token != "" {
 		req.Header.Add("Client-ID", "kimne78kx3ncx6brgo4mv6wki5h1ko")
 		req.Header.Add("Authorization", fmt.Sprintf("OAuth %s", p.conf.OAuth2Token))
 		p.loggerStandard.Printf("Stream viewership is authenticated using Twitch's ClientID.")
 	} else {
-
 		p.loggerStandard.Printf("Stream viewership is anonymous.")
 	}
 
-	u.RawQuery = v.Encode()
-
-	p.loggerVerbose.Printf("Get Token Request: %#v %s", req.Header, req.URL)
+	p.loggerVerbose.Printf("Get Token GraphQL Header: %#v", req.Header)
+	p.loggerVerbose.Printf("Get Token GraphQL Query: %#v", query)
 
 	resp, err := http.DefaultClient.Do(req)
 
@@ -142,24 +115,21 @@ func (p *PlaylistManager) getToken() error {
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("Non-200 code returned for TOKEN: %s", resp.Status)
+		return fmt.Errorf("Non-200 code returned for GraphQL Request for PlaybackAccessToken: %s", resp.Status)
 	}
 
-	var t TokenResponse
+	var graphResponse PlaybackAccessTokenGraphQLResponse
 	decoder := json.NewDecoder(resp.Body)
-	err = decoder.Decode(&t)
+	err = decoder.Decode(&graphResponse)
+	resp.Body.Close()
 
 	if err != nil {
 		return err
 	}
 
-	resp.Body.Close()
+	p.StreamPlaybackAccessToken = &graphResponse.Data.StreamPlaybackAccessToken
 
-	p.Token = t.Token
-	p.Signature = t.Signature
-
-	p.loggerVerbose.Printf("Token: %s", t.Token)
-	p.loggerVerbose.Printf("Signature: %s", t.Signature)
+	p.loggerVerbose.Printf("graphResponse: %#v", graphResponse)
 
 	return nil
 }
@@ -168,14 +138,16 @@ func (p *PlaylistManager) getVariant() (*m3u8.Variant, error) {
 	base_url, _ := url.Parse(fmt.Sprintf(USHER_API_MASK, p.ChannelName))
 
 	v := url.Values{}
-	v.Add("player_backend", "html5")
-	v.Add("token", p.Token)
-	v.Add("sig", p.Signature)
-	v.Add("allow_audio_only", "true")
 	v.Add("allow_source", "true")
-	v.Add("allow_spectre", "false")
-	v.Add("type", "any")
-	v.Add("p", "123456")
+	v.Add("fast_bread", "true")
+	v.Add("fast_bread", "true")
+	v.Add("p", "1234567890")
+	v.Add("player_backend", "mediaplayer")
+	v.Add("sig", p.StreamPlaybackAccessToken.Signature)
+	v.Add("supported_codecs", "vp09,avc1")
+	v.Add("token", p.StreamPlaybackAccessToken.Value)
+	v.Add("cdm", "wv")
+	v.Add("player_version", "1.2.0")
 
 	base_url.RawQuery = v.Encode()
 	req, _ := http.NewRequest("GET", base_url.String(), nil)
@@ -377,11 +349,14 @@ loop:
 				if !foundEdge {
 					foundEdge = true
 
-					if len(new_segments) > 3 {
-						p.outputChan <- new_segments[len(new_segments) - 4]
-						p.outputChan <- new_segments[len(new_segments) - 3]
-						p.outputChan <- new_segments[len(new_segments) - 2]
-						p.outputChan <- new_segments[len(new_segments) - 1]
+					x := 4
+
+					if len(new_segments) < 4 {
+						x = len(new_segments)
+					}
+
+					for ; x > 0; x-- {
+						p.outputChan <- new_segments[len(new_segments) - x]
 					}
 				} else {
 					for _, url := range new_segments {
