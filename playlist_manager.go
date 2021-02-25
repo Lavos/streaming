@@ -140,7 +140,6 @@ func (p *PlaylistManager) getVariant() (*m3u8.Variant, error) {
 	v := url.Values{}
 	v.Add("allow_source", "true")
 	v.Add("fast_bread", "true")
-	v.Add("fast_bread", "true")
 	v.Add("p", "1234567890")
 	v.Add("player_backend", "mediaplayer")
 	v.Add("sig", p.StreamPlaybackAccessToken.Signature)
